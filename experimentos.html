@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quadrado vs Inimigos + Power Up Estrela + Canhão</title>
+    <style>
+        body {
+            background-color: #212121;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        canvas {
+            background-color: #a2df06;
+            border: 5px solid #0ff;
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+    </style>
+</head>
+<body>
+<canvas id="game" width="600" height="600"></canvas>
+
+<script>
+let timeStopCircleGrowing = false;
+let lastFrame = performance.now();
+let isTimeStopVisualActive = false;
+let showTimeStopMessage = false;
+let timeStopMessageTimer = 0;
+let timeStopCircleSize = 0; // 🔥 ESSENCIAL!
+
+const invencivelSound = new Audio("sons.livre/NyanCatoriginal.mp3");
+invencivelSound.volume = 0.5;
+invencivelSound.loop = true;
+
+const damageSound = new Audio('sons.livre/minecraft-death-sound-effect.mp3');
+damageSound.volume = 0.5;
+
+const shootSound = new Audio('sons.livre/pew_pew-dknight556-1379997159.mp3');
+shootSound.volume = 0.4;
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const arenaSize = 600;
+const box = 30;
+let hasTimeStop = false;
+let isTimeStopped = false;
+let timeStopDuration = 0;
+let timeStopEffectTimer = 0;
+
+
+
+
+// Jogador
+const player = {
+    x: arenaSize / 2 - box / 2,
+    y: arenaSize / 2 - box / 2,
+    size: box,
+    speed: 3,
+    baseSpeed: 3,
+    dx: 0,
+    dy: 0,
+    color: "#00f",
+    speedBoostTimer: 0,
+    invincibleTimer: 0,
+    cannonTimer: 0,
+    dashCooldown: 0,
+    dashDuration: 0,
+    isDashing: false,
+
+};
+
+const enemies = [];
+let enemySpeed = 2;
+let slowEnemiesTimer = 0;
+let lives = 7;
+const powerUps = [];
+const projectiles = [];
+
+const keys = {};
+document.addEventListener('keydown', (e) => keys[e.key] = true);
+document.addEventListener('keyup', (e) => keys[e.key] = false);
+document.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+
+    if (e.code === "Space" && player.dashCooldown <= 0) {
+        startDash();
+    }
+});
+
+document.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'e') {
+        if (hasTimeStop && !isTimeStopped) {
+            isTimeStopped = true;
+            timeStopDuration = 300; // 5 segundos de paralisação (60fps * 5)
+            timeStopEffectTimer = 0;
+            hasTimeStop = false; // Consome o poder
+        }
+    }
+});
+
+
+let mouseX = 0;
+let mouseY = 0;
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
+
+canvas.addEventListener('mousedown', () => {
+    if (player.cannonTimer > 0) shoot();
+});
+
+// Arco-íris
+const rainbowColors = ["red", "orange", "yellow", "lime", "cyan", "blue", "magenta"];
+let rainbowIndex = 0;
+
+function startDash() {
+    if (player.dx !== 0 || player.dy !== 0) {
+        player.isDashing = true;
+        player.dashDuration = 10;      // Duração curta (~0,16s)
+        player.dashCooldown = 120;     // 4 segundos (60fps x 4)
+    }
+}
+
+
+function movePlayer() {
+    let dashSpeed = player.isDashing ? player.speed * 5 : player.speed;
+
+    player.dy = 0;
+    player.dx = 0;
+
+    if (keys["w"] && player.y > 0) player.dy = -dashSpeed;
+    if (keys["s"] && player.y < arenaSize - player.size) player.dy = dashSpeed;
+    if (keys["a"] && player.x > 0) player.dx = -dashSpeed;
+    if (keys["d"] && player.x < arenaSize - player.size) player.dx = dashSpeed;
+
+    player.x += player.dx;
+    player.y += player.dy;
+}
+
+
+
+function spawnEnemy() {
+    const sides = ["top", "bottom", "left", "right"];
+    const side = sides[Math.floor(Math.random() * sides.length)];
+    let x, y;
+
+    const doorStart = (arenaSize / 2) - (box * 1.5);
+
+    if (side === "top") {
+        x = doorStart + Math.floor(Math.random() * 3) * box;
+        y = 0;
+    } else if (side === "bottom") {
+        x = doorStart + Math.floor(Math.random() * 3) * box;
+        y = arenaSize - box;
+    } else if (side === "left") {
+        x = 0;
+        y = doorStart + Math.floor(Math.random() * 3) * box;
+    } else {
+        x = arenaSize - box;
+        y = doorStart + Math.floor(Math.random() * 3) * box;
+    }
+
+    enemies.push({ x, y, size: box, color: "#f00" });
+}
+
+function spawnPowerUp() {
+    const random = Math.random();
+    let type;
+    if (random < 0.25) type = "life";              // 25% vida
+    else if (random < 0.45) type = "speed";        // 20% velocidade
+    else if (random < 0.80) type = "slow";         // 35% inimigos lentos
+    else if (random < 0.95) type = "cannon";       // 15% canhão
+    else type = "star";                            // 5% estrela
+
+    const x = Math.floor(Math.random() * (arenaSize / box)) * box;
+    const y = Math.floor(Math.random() * (arenaSize / box)) * box;
+
+    powerUps.push({
+        x, y, size: box, type,
+        color: type === "life" ? "#0f0" :
+               type === "speed" ? "#ff0" :
+               type === "slow" ? "#0ff" :
+               type === "star" ? "rainbow" :
+               "#964B00",
+        timer: 500
+    });
+}
+
+
+function isColliding(a, b) {
+    return (
+        a.x < b.x + b.size &&
+        a.x + a.size > b.x &&
+        a.y < b.y + b.size &&
+        a.y + a.size > b.y
+    );
+}
+
+function moveEnemies() {
+    if (isTimeStopped) return;
+
+    const speed = slowEnemiesTimer > 0 ? enemySpeed * (1 / 1.5) : enemySpeed;
+    enemies.forEach((enemy, index) => {
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+            enemy.x += dx > 0 ? speed : -speed;
+        } else {
+            enemy.y += dy > 0 ? speed : -speed;
+        }
+
+        if (isColliding(enemy, player)) {
+            if (player.invincibleTimer <= 0) {
+                enemies.splice(index, 1);
+                lives--;
+                damageSound.currentTime = 0;
+                damageSound.play();
+                if (lives <= 0) {
+                    alert("Game Over!");
+                    resetGame();
+                }
+            } else {
+                enemies.splice(index, 1);
+            }
+        }
+    });
+}
+
+function moveProjectiles() {
+    projectiles.forEach((p, index) => {
+        p.x += p.dx;
+        p.y += p.dy;
+
+        if (p.x < 0 || p.x > arenaSize || p.y < 0 || p.y > arenaSize) {
+            projectiles.splice(index, 1);
+        }
+
+        enemies.forEach((enemy, eIndex) => {
+            if (isColliding(p, enemy)) {
+                enemies.splice(eIndex, 1);
+                projectiles.splice(index, 1);
+            }
+        });
+    });
+}
+
+function shoot() {
+    const angle = Math.atan2(mouseY - (player.y + player.size / 2), mouseX - (player.x + player.size / 2));
+    const speed = 7;
+    const size = 10;
+    const dx = Math.cos(angle) * speed;
+    const dy = Math.sin(angle) * speed;
+
+    projectiles.push({
+        x: player.x + player.size / 2 - size / 2,
+        y: player.y + player.size / 2 - size / 2,
+        dx, dy, size, color: "#fff"
+    });
+
+    shootSound.currentTime = 0;
+    shootSound.play();
+}
+
+function updatePowerUps() {
+    powerUps.forEach((p, index) => {
+        p.timer--;
+        if (p.timer <= 0) powerUps.splice(index, 1);
+
+        if (isColliding(p, player)) {
+            if (p.type === "life") lives++;
+            if (p.type === "speed") {
+    player.speed = player.baseSpeed * 2;
+    player.speedBoostTimer = 600;
+
+    // 100% de chance temporária para teste
+    hasTimeStop = true;
+    showTimeStopMessage = true;
+    timeStopMessageTimer = 180; // Mostrar a mensagem por 3 segundos (60fps * 3)
+}
+
+            if (p.type === "slow") slowEnemiesTimer = 600;
+            if (p.type === "star") {
+                player.invincibleTimer = 1250;
+                player.speed = player.baseSpeed * 5;
+                invencivelSound.play();
+            }
+            if (p.type === "cannon") {
+                player.cannonTimer = 1000;
+            }
+
+            powerUps.splice(index, 1);
+        }
+    });
+}
+
+function updateTimers() {
+   // Expansão suave do círculo
+if (timeStopCircleGrowing) {
+    timeStopCircleSize += 120 * delta; // 120 px por segundo
+}
+
+    if (timeStopCircleSize > Math.max(canvas.width, canvas.height)) {
+        timeStopCircleSize = 0;
+        isTimeStopVisualActive = false;
+    }
+
+    if (player.speedBoostTimer > 0) {
+        player.speedBoostTimer--;
+        if (player.speedBoostTimer === 0 && player.invincibleTimer <= 0) {
+            player.speed = player.baseSpeed;
+        }
+    }
+    if (player.invincibleTimer > 0) {
+        player.invincibleTimer--;
+        if (player.invincibleTimer === 0) {
+            player.speed = player.baseSpeed;
+            invencivelSound.pause();
+            invencivelSound.currentTime = 0;
+        }
+    }
+    if (player.cannonTimer > 0) {
+        player.cannonTimer--;
+    }
+    if (slowEnemiesTimer > 0) {
+        slowEnemiesTimer--;
+    }
+    if (player.dashCooldown > 0) player.dashCooldown--;
+if (player.dashDuration > 0) {
+    player.dashDuration--;
+    if (player.dashDuration === 0) {
+        player.isDashing = false;
+    }
+}
+
+if (showTimeStopMessage) {
+    timeStopMessageTimer--;
+    if (timeStopMessageTimer <= 0) {
+        showTimeStopMessage = false;
+    }
+}
+if (isTimeStopped) {
+    timeStopDuration--;
+    timeStopEffectTimer++;
+
+    if (timeStopDuration <= 0) {
+    isTimeStopped = false;
+    timeStopCircleGrowing = true; // 🔥 começa a crescer
+    timeStopCircleSize = 10;      // raio inicial
+}
+
+}
+
+}
+
+function resetGame() {
+    player.x = arenaSize / 2 - box / 2;
+    player.y = arenaSize / 2 - box / 2;
+    enemies.length = 0;
+    powerUps.length = 0;
+    projectiles.length = 0;
+    lives = 5;
+    player.speed = player.baseSpeed;
+    player.speedBoostTimer = 0;
+    player.invincibleTimer = 0;
+    player.cannonTimer = 0;
+    slowEnemiesTimer = 0;
+}
+
+function drawTimeStopCircle() {
+    if (timeStopCircleGrowing) {
+        ctx.beginPath();
+        ctx.arc(
+            player.x + player.size / 2,
+            player.y + player.size / 2,
+            timeStopCircleSize,
+            0,
+            Math.PI * 2
+        );
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "rgba(255, 255, 0, 0.9)";
+        ctx.stroke();
+    }
+}
+
+
+const img = new (Image)
+
+function draw() {
+    
+    img.src = "imagens.livre/arena.png"
+    
+    
+    //ctx.fillStyle = "#222";
+    //ctx.fillRect(0, 0, arenaSize, arenaSize);
+
+    const doorStart = (arenaSize / 2) - (box * 1.5);
+
+    ctx.drawImage(img,0,0,arenaSize, arenaSize)
+    ctx.fillStyle = "#555";
+    ctx.fillRect(doorStart, 0, box * 3, box);
+    ctx.fillRect(doorStart, arenaSize - box, box * 3, box);
+    ctx.fillRect(0, doorStart, box, box * 3);
+    ctx.fillRect(arenaSize - box, doorStart, box, box * 3);
+    if (isTimeStopped) {
+    const alpha = Math.max(0, 1 - timeStopEffectTimer / 300);
+    ctx.beginPath();
+    ctx.arc(player.x + player.size / 2, player.y + player.size / 2, 200, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 255, 0, ${alpha})`;
+    ctx.lineWidth = 10;
+    ctx.stroke();
+}
+
+
+    // Jogador
+    if (player.cannonTimer > 0) {
+        const angle = Math.atan2(mouseY - (player.y + player.size / 2), mouseX - (player.x + player.size / 2));
+        ctx.fillStyle = player.color;
+        ctx.beginPath();
+        ctx.arc(player.x + player.size / 2, player.y + player.size / 2, player.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        // Canhão
+        ctx.save();
+        ctx.translate(player.x + player.size / 2, player.y + player.size / 2);
+        ctx.rotate(angle);
+        ctx.fillStyle = "#964B00";
+        ctx.fillRect(0, -5, 25, 10);
+        ctx.restore();
+    } else {
+        ctx.fillStyle = player.invincibleTimer > 0 ? rainbowColors[rainbowIndex] : player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+    }
+
+    // Inimigos
+    enemies.forEach(enemy => {
+        ctx.fillStyle = enemy.color;
+        ctx.fillRect(enemy.x, enemy.y, enemy.size, enemy.size);
+    });
+
+    // Projetéis
+    projectiles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+    });
+
+    // Power-ups
+    powerUps.forEach(p => {
+        ctx.fillStyle = p.type === "star" ? rainbowColors[rainbowIndex] : p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+    });
+
+    // HUD
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "20px Arial";
+    ctx.fillText("Vidas: " + lives, 10, 590);
+
+    if (player.speedBoostTimer > 0) {
+        ctx.fillStyle = "#ff0";
+        ctx.fillText("Velocidade x2!", 120, 590);
+    }
+
+    if (showTimeStopMessage) {
+    ctx.fillStyle = "#ff0";
+    ctx.font = "20px Arial";
+    ctx.fillText("Você obteve a Paralisação!", 180, 50);
+}
+
+    if (hasTimeStop) {
+    ctx.fillStyle = "#ff0";
+    ctx.font = "20px Arial";
+    ctx.fillText("Paralisação (E)", 230, 70);
+    }
+
+
+    if (slowEnemiesTimer > 0) {
+        ctx.fillStyle = "#0ff";
+        ctx.fillText("Inimigos Lentos!", 300, 590);
+    }
+
+    if (player.invincibleTimer > 0) {
+        ctx.fillStyle = "#f0f";
+        ctx.fillText("INVENCÍVEL!", 480, 590);
+    }
+
+    if (player.cannonTimer > 0) {
+        ctx.fillStyle = "#964B00";
+        ctx.fillText("CANHÃO ATIVO!", 420, 30);
+    }
+
+    drawTimeStopCircle();
+}
+
+function gameLoop() {
+    let now = performance.now();
+let delta = (now - lastFrame) / 1000; // segundos desde o último frame
+lastFrame = now;
+
+    movePlayer();
+    moveEnemies();
+    moveProjectiles();
+    updatePowerUps();
+    updateTimers();
+    drawTimeStopCircle();
+    draw();
+
+    rainbowIndex = (rainbowIndex + 1) % rainbowColors.length;
+    requestAnimationFrame(gameLoop);
+}
+
+setInterval(spawnEnemy, 1000);
+setInterval(spawnPowerUp, 5000);
+gameLoop();
+</script>
+</body>
+</html>
