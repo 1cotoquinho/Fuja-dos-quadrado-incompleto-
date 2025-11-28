@@ -33,14 +33,14 @@ let showTimeStopMessage = false;
 let timeStopMessageTimer = 0;
 let timeStopCircleSize = 0; // 🔥 ESSENCIAL!
 
-const invencivelSound = new Audio("sons.livre/NyanCatoriginal.mp3");
+const invencivelSound = new Audio("sons/NyanCatoriginal.mp3");
 invencivelSound.volume = 0.5;
 invencivelSound.loop = true;
 
-const damageSound = new Audio('sons.livre/minecraft-death-sound-effect.mp3');
+const damageSound = new Audio('sons/minecraft-death-sound-effect.mp3');
 damageSound.volume = 0.5;
 
-const shootSound = new Audio('sons.livre/pew_pew-dknight556-1379997159.mp3');
+const shootSound = new Audio('sons/pew_pew-dknight556-1379997159.mp3');
 shootSound.volume = 0.4;
 
 const canvas = document.getElementById('game');
@@ -397,7 +397,7 @@ const img = new (Image)
 
 function draw() {
     
-    img.src = "imagens.livre/arena.png"
+    img.src = "imagens/arena.png"
     
     
     //ctx.fillStyle = "#222";
@@ -524,3 +524,4 @@ gameLoop();
 </body>
 
 </html>
+
