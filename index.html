@@ -35,6 +35,10 @@ let timeStopCircleSize = 0; // 🔥 ESSENCIAL!
 let survivalTime = 0;
 let score = 0;
 let powerUpsCollected = 0;
+let floatingTexts = [];
+let zombieMode = false;
+let zombieModeTimer = 0;
+let zombieModeTriggered = false;
 
 let gameState = "menu"; // menu | playing | gameover
 
@@ -42,8 +46,34 @@ const invencivelSound = new Audio("sons/NyanCatoriginal.mp3");
 invencivelSound.volume = 0.5;
 invencivelSound.loop = true;
 
+function isZombieMode() {
+    return zombieMode;
+}
+
+const menuMusic = new Audio("sons/menu.mp3");
+menuMusic.loop = true;
+menuMusic.volume = 0.4;
+
+const killSound = new Audio("sons/ahh.mp3");
+killSound.volume = 0.4;
+
+//const bgMusic = new Audio("sons/bg.mp3");
+//bgMusic.loop = true;
+//bgMusic.volume = 0.2;
+
+const timestopSound = new Audio("sons/zahando.mp3");
+timestopSound.volume = 0.6;
+
+const dashSound = new Audio("sons/dash.mp3");
+dashSound.volume = 0.4;
+
+const gameOverSound = new Audio("sons/lose.mp3");
+
+
 const damageSound = new Audio('sons/minecraft-death-sound-effect.mp3');
 damageSound.volume = 0.5;
+
+const zombSound = new Audio("sons/zombies.mp3")
 
 const shootSound = new Audio('sons/pew_pew-dknight556-1379997159.mp3');
 shootSound.volume = 0.4;
@@ -103,6 +133,8 @@ document.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
 document.addEventListener('keydown', (e) => {
     if (e.key.toLowerCase() === 'e') {
         if (hasTimeStop && !isTimeStopped) {
+            timestopSound.currentTime = 0;
+            timestopSound.play();
             isTimeStopped = true;
             timeStopDuration = 300; // 5s
             timeStopEffectTimer = 0;
@@ -142,6 +174,8 @@ const rainbowColors = ["red", "orange", "yellow", "lime", "cyan", "blue", "magen
 let rainbowIndex = 0;
 
 function startDash() {
+    dashSound.currentTime = 0;
+dashSound.play();
     if (player.dx !== 0 || player.dy !== 0) {
         player.isDashing = true;
         player.dashDuration = 10;      // Duração curta (~0,16s)
@@ -171,13 +205,42 @@ function startGame() {
     score = 0;
     powerUpsCollected = 0;
     gameState = "playing";
+    menuMusic.pause();
+menuMusic.currentTime = 0;
+}
+
+function updateFloatingTexts() {
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        let t = floatingTexts[i];
+
+        t.y += t.vy;
+        t.alpha -= 0.02;
+
+        if (t.alpha <= 0) {
+            floatingTexts.splice(i, 1);
+        }
+    }
+}
+function drawFloatingTexts() {
+    ctx.save();
+
+    floatingTexts.forEach(t => {
+        ctx.globalAlpha = t.alpha;
+        ctx.fillStyle = "#FFD700";
+        ctx.font = "bold 20px Arial";
+        ctx.fillText(t.text, t.x, t.y);
+    });
+
+    ctx.restore();
 }
 
 function spawnEnemy() {
+    
+    if (zombieModeTimer > 0) return;
     const sides = ["top", "bottom", "left", "right"];
     const side = sides[Math.floor(Math.random() * sides.length)];
-    let x, y;
 
+    let x, y;
     const doorStart = (arenaSize / 2) - (box * 1.5);
 
     if (side === "top") {
@@ -194,9 +257,16 @@ function spawnEnemy() {
         y = doorStart + Math.floor(Math.random() * 3) * box;
     }
 
-    enemies.push({ x, y, size: box, color: "#f00" });
-}
+    let isZombie = zombieMode || Math.random() < 0.20;
 
+    enemies.push({
+        x,
+        y,
+        size: box,
+        color: isZombie ? "#2ecc71" : "#f00",
+        isZombie: isZombie
+    });
+}
 function spawnPowerUp() {
     const random = Math.random();
     let type;
@@ -233,8 +303,11 @@ function isColliding(a, b) {
 function moveEnemies() {
     if (isTimeStopped) return;
 
-    const speed = slowEnemiesTimer > 0 ? enemySpeed * (1 / 1.5) : enemySpeed;
     enemies.forEach((enemy, index) => {
+
+        let baseSpeed = slowEnemiesTimer > 0 ? enemySpeed * (1 / 1.5) : enemySpeed;
+        const speed = enemy.isZombie ? baseSpeed * 1.3 : baseSpeed;
+
         const dx = player.x - enemy.x;
         const dy = player.y - enemy.y;
 
@@ -247,16 +320,25 @@ function moveEnemies() {
         if (isColliding(enemy, player)) {
             if (player.invincibleTimer <= 0) {
                 enemies.splice(index, 1);
-                lives--;
+                lives -= enemy.isZombie ? 2 : 1;
                 damageSound.currentTime = 0;
-                damageSound.play();
-                if (lives <= 0) {
-                   gameState = "gameover";
-                }
+damageSound.play();
             } else {
-                enemies.splice(index, 1);
-                score += 100;
-            }
+    enemies.splice(index, 1);
+
+    const gain = enemy.isZombie ? 200 : 100;
+    score += gain;
+
+    floatingTexts.push({
+        x: enemy.x,
+        y: enemy.y,
+        text: "+" + gain,
+        alpha: 1,
+        vy: -0.5
+    });
+    killSound.currentTime = 0;
+    killSound.play();
+}
         }
     });
 }
@@ -274,7 +356,21 @@ function moveProjectiles() {
             if (isColliding(p, enemy)) {
                 enemies.splice(eIndex, 1);
                 projectiles.splice(index, 1);
-                score += 100;
+                
+                killSound.currentTime = 0;
+                killSound.play();
+                const gain = enemy.isZombie ? 200 : 100;
+                score += gain;
+
+                floatingTexts.push({
+                    x: enemy.x,
+                    y: enemy.y,
+                     text: "+" + gain,
+                          alpha: 1,
+                 vy: -0.5           
+});
+
+console.log("texto criado");
             }
         });
     });
@@ -305,10 +401,12 @@ function updatePowerUps() {
 
         if (isColliding(p, player)) {
             powerUpsCollected++; 
-            if (p.type === "life") lives++;
+            if (p.type === "life") {
+    lives += zombieMode ? 2 : 1;
+}
             if (p.type === "speed") {
     player.speed = player.baseSpeed * 2;
-    player.speedBoostTimer = 600;
+   player.speedBoostTimer = zombieMode ? 900 : 600;
 
     
   if (Math.random() < 0.25) { // 25% de chance
@@ -325,7 +423,7 @@ function updatePowerUps() {
                 invencivelSound.play();
             }
             if (p.type === "cannon") {
-                player.cannonTimer = 1000;
+               player.cannonTimer = zombieMode ? 1300 : 1000;
             }
 
             powerUps.splice(index, 1);
@@ -341,6 +439,12 @@ function updateTimers(delta) {
     if (gameState === "playing") {
     survivalTime += delta;
     }
+    
+    
+    if (lives <= 0) {
+    lives = 0; // evita negativo
+    gameState = "gameover";
+}
 
     if (timeStopCircleSize > Math.max(canvas.width, canvas.height)) {
         timeStopCircleSize = 0;
@@ -407,6 +511,18 @@ if (isTimeStopped) {
             // não faça: timeStopCircleGrowing = true; timeStopCircleSize = 10;
         }
     }
+    if (score >= 4500 && !zombieModeTriggered) {
+    zombieModeTriggered = true;
+    enemies.length = 0;
+    zombieModeTimer = 8; // segundos
+}
+
+if (zombieModeTimer > 0) {
+    zombieModeTimer -= delta;
+    if (zombieModeTimer <= 0) {
+        zombieMode = true;
+    }
+}
 
 }
 
@@ -442,28 +558,42 @@ function drawTimeStopCircle() {
 
 
 const img = new (Image)
+img.src = "imagens/arena.png"
 
 function draw() {
+    
+
+    
+
       drawTimeStopCircle();
-    img.src = "imagens/arena.png"
+    
 
-    if (gameState === "menu") {
-
+  if (gameState === "menu") {
+   
+        menuMusic.play();
+    
     ctx.fillStyle = "#000";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     ctx.fillStyle = "#fff";
-    ctx.font = "40px Arial";
-    ctx.fillText("Quadrado vs Inimigos", 120, 200);
 
-    ctx.font = "20px Arial";
-    ctx.fillText("Clique para começar", 200, 300);
+    ctx.font = "36px Arial";
+    ctx.fillText("Sobreviva aos quadrados", 110, 150);
+
+    ctx.font = "18px Arial";
+    ctx.fillText("Tutorial:", 180, 200);
+    ctx.fillText("AWDS — mover", 160, 230);
+    ctx.fillText("Space — dash", 160, 255);
+    ctx.fillText("Click — tiro (power up marrom)", 100, 280);
+
+    ctx.fillText("Matando os quadrados você ganha score.", 60, 330);
+    ctx.fillText("Clique para começar e divirta-se :3", 90, 360);
 
     return;
 }
     
 if (gameState === "gameover") {
-
+    gameOverSound.play();
     ctx.fillStyle = "#000";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
@@ -476,7 +606,7 @@ if (gameState === "gameover") {
 
     ctx.fillText("Tempo: " + survivalTime.toFixed(1) + "s", 220, 250);
     ctx.fillText("Score: " + score, 220, 280);
-    ctx.fillText("Power Ups: " + powerUpsCollected, 220, 310);
+    ctx.fillText("Power Ups Coletados: " + powerUpsCollected, 220, 310);
 
     ctx.fillText("Clique para jogar novamente", 170, 380);
 
@@ -536,6 +666,14 @@ if (gameState === "gameover") {
 
     // HUD
 
+    // === HUD extra ===
+ctx.fillStyle = "#fff";
+ctx.font = "16px Arial";
+
+ctx.fillText("Tempo: " + survivalTime.toFixed(1) + "s", 10, 20);
+ctx.fillText("Score: " + score, 10, 40);
+ctx.fillText("PowerUps: " + powerUpsCollected, 10, 60);
+
     ctx.fillStyle = "#fff";
     ctx.font = "20px Arial";
     ctx.fillText("Vidas: " + lives, 10, 590);
@@ -572,8 +710,17 @@ if (gameState === "gameover") {
         ctx.fillStyle = "#964B00";
         ctx.fillText("CANHÃO ATIVO!", 420, 30);
     }
+    // === mensagem da horda ===
+if (zombieModeTimer > 0 && gameState === "playing") {
+    ctx.fillStyle = "#0f0";
+    ctx.font = "bold 30px Arial";
+    ctx.fillText("THE ZOMBIES ARE COMING", 80, 100);
+    zombSound.play();
+}
 
     drawTimeStopCircle();
+         updateFloatingTexts();
+drawFloatingTexts();
 }
 
 function gameLoop() {
@@ -582,12 +729,15 @@ function gameLoop() {
     lastFrame = now;
 
  if (gameState === "playing") {
+       
 
     movePlayer();
     moveEnemies();
     moveProjectiles();
     updatePowerUps();
     updateTimers(delta);
+
+
 
 }
     draw(); // draw() deve chamar drawTimeStopCircle() internamente
